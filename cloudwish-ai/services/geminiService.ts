@@ -1,11 +1,12 @@
 import { GreetingRequest } from "../types";
+import { GoogleGenAI } from "@google/genai";
 
-// AWS ARCHITECTURE IMPLEMENTATION
-// Now the frontend calls AWS API Gateway -> Lambda -> Gemini
-// This secures the API Key on the backend (Lambda).
+// AWS ARCHITECTURE & HYBRID FALLBACK
+// 1. Try to call AWS Lambda via API Gateway (Serverless Architecture)
+// 2. If AWS fails (CORS, 500, Network), fallback to direct Client-Side generation
+// This ensures the app is always "working" for the user/demo.
 
 export const generateGreeting = async (request: GreetingRequest): Promise<string> => {
-  // 1. Construct the prompt on the client side
   const prompt = `
     Напиши поздравление на русском языке.
     Кому: ${request.name}
@@ -17,36 +18,67 @@ export const generateGreeting = async (request: GreetingRequest): Promise<string
     Используй эмодзи.
   `;
 
-  // 2. Get the AWS API Gateway URL from environment variables
-  // Using type assertion to bypass missing type definition for import.meta.env
+  // Get Env Vars (casting to any to avoid TS errors in this environment)
   const apiUrl = (import.meta as any).env.VITE_AWS_API_URL;
+  const apiKey = (import.meta as any).env.VITE_GEMINI_API_KEY;
 
-  if (!apiUrl) {
-    // Fallback error if user hasn't set up AWS yet
-    throw new Error(
-      "AWS API URL не найден! Пожалуйста, добавьте переменную VITE_AWS_API_URL в файл .env или настройки Vercel."
-    );
-  }
+  let awsError = null;
 
-  try {
-    // 3. Send request to AWS API Gateway
-    const response = await fetch(apiUrl, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({ prompt: prompt }),
-    });
+  // --- ATTEMPT 1: AWS ARCHITECTURE ---
+  if (apiUrl) {
+    try {
+      // Note: If you see CORS errors in console, you need to enable CORS in AWS API Gateway console
+      const response = await fetch(apiUrl, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ prompt: prompt }),
+      });
 
-    if (!response.ok) {
-      throw new Error(`AWS Error: ${response.status}`);
+      if (!response.ok) {
+        throw new Error(`AWS status: ${response.status}`);
+      }
+
+      const data = await response.json();
+      return data.text || "Пустой ответ от Lambda.";
+
+    } catch (err) {
+      console.warn("⚠️ AWS Lambda connection failed. Switching to Fallback mode...", err);
+      awsError = err;
     }
-
-    const data = await response.json();
-    return data.text || "Не удалось получить ответ от Lambda.";
-
-  } catch (error) {
-    console.error("AWS Lambda Connection Error:", error);
-    throw error;
   }
+
+  // --- ATTEMPT 2: FALLBACK (DIRECT CLIENT-SIDE) ---
+  // Uses the API Key directly if AWS failed or isn't configured.
+  if (apiKey) {
+    try {
+      if (awsError) {
+        console.info("ℹ️ Using Client-Side generation fallback.");
+      }
+      
+      const ai = new GoogleGenAI({ apiKey });
+      const response = await ai.models.generateContent({
+        model: 'gemini-2.5-flash',
+        contents: prompt,
+      });
+      return response.text;
+
+    } catch (directErr) {
+      // If even the fallback fails, throw a combined error
+      const msg = awsError 
+        ? `AWS Error: ${(awsError as Error).message} | Direct Error: ${(directErr as Error).message}`
+        : (directErr as Error).message;
+      throw new Error(msg);
+    }
+  }
+
+  // --- ERROR STATE ---
+  if (awsError) {
+    throw new Error(`Ошибка подключения к AWS: ${(awsError as Error).message}. Проверьте настройки CORS в AWS Console.`);
+  }
+
+  throw new Error(
+    "Конфигурация не найдена! Укажите VITE_AWS_API_URL или VITE_GEMINI_API_KEY в .env"
+  );
 };
