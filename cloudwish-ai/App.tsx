@@ -112,7 +112,7 @@ const App: React.FC = () => {
 
       <footer className="bg-white border-t border-slate-200 py-6">
         <div className="max-w-7xl mx-auto px-4 text-center text-slate-500 text-sm">
-          <p>© 2024 CloudWish AI. Проект для демонстрации AWS Free Tier Architecture.</p>
+          <p>© 2025 CloudWish AI. Проект для демонстрации AWS Free Tier Architecture.</p>
         </div>
       </footer>
     </div>
