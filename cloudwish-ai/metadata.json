@@ -1,0 +1,5 @@
+{
+  "name": "CloudWish AI",
+  "description": "Serverless AI Greeting Generator using AWS Architecture and Gemini AI",
+  "requestFramePermissions": []
+}
